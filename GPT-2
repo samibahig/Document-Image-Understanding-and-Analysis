@@ -1,0 +1,125 @@
+import torch
+from torch.utils.data import Dataset, DataLoader
+from transformers import GPT2Tokenizer, GPT2ForSequenceClassification, AdamW
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+tokenizer.pad_token = tokenizer.eos_token
+
+class FunsdDataset(Dataset):
+    def __init__(self, texts, labels, tokenizer, label_map, max_length=512):
+        self.texts = texts
+        self.labels = labels
+        self.tokenizer = tokenizer
+        self.label_map = label_map
+        self.max_length = max_length
+
+    def __len__(self):
+        return len(self.texts)
+
+    def __getitem__(self, idx):
+        text = self.texts[idx]
+        labels = self.labels[idx]
+
+        inputs = self.tokenizer(
+            text,
+            truncation=True,
+            padding="max_length",
+            max_length=self.max_length,
+            return_tensors="pt",
+            is_split_into_words=True,
+        )
+
+        label_ids = [self.label_map[label] for label in labels]
+        label_ids += [self.label_map["[PAD]"]] * (self.max_length - len(label_ids))
+
+        inputs["labels"] = torch.tensor(label_ids, dtype=torch.long)
+
+        return inputs
+
+# Replace these variables with your actual data
+
+label_map = {"answer": 0, "header": 1, "other": 2, "question": 3, "[PAD]": 4}
+batch_size = 4
+epochs = 3
+learning_rate = 3e-5
+
+train_dataset = FunsdDataset(train_texts, train_labels, tokenizer, label_map)
+test_dataset = FunsdDataset(test_texts, test_labels, tokenizer, label_map)
+
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
+config = GPT2Config.from_pretrained("gpt2", num_labels=len(label_map))
+config.pad_token_id = tokenizer.pad_token_id
+
+accumulation_steps = 4  # Adjust this value depending on your memory constraints
+
+for epoch in range(epochs):
+    gpt2_model.train()
+    optimizer.zero_grad()
+
+    for i, batch in enumerate(train_dataloader):
+        input_ids = batch["input_ids"].to(device)
+        labels = batch["labels"].to(device)
+
+        outputs = gpt2_model(input_ids, labels=labels)
+        loss = outputs.loss
+        loss.backward()
+
+        if (i + 1) % accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+
+    # Evaluate the model on the test set
+    gpt2_model.eval()
+    test_loss = 0
+    for batch in test_dataloader:
+        input_ids = batch["input_ids"].to(device)
+        labels = batch["labels"].to(device)
+
+        with torch.no_grad():
+            outputs = gpt2_model(input_ids, labels=labels)
+            test_loss += outputs.loss.item()
+
+    print(f"Epoch {epoch + 1}/{epochs}, Test Loss: {test_loss / len(test_dataloader)}")
+
+
+#gpt2_model = GPT2ForSequenceClassification.from_pretrained("gpt2", config=config).to(device)
+#gpt2_model = GPT2ForSequenceClassification.from_pretrained("gpt2", num_labels=len(label_map)).to(device)
+optimizer = AdamW(gpt2_model.parameters(), lr=learning_rate)
+
+for epoch in range(epochs):
+    gpt2_model.train()
+    for batch in train_dataloader:
+        optimizer.zero_grad()
+
+        input_ids = batch["input_ids"].to(device)
+        labels = batch["labels"].to(device)
+
+        outputs = gpt2_model(input_ids, labels=labels)
+        loss = outputs.loss
+        loss.backward()
+        optimizer.step()
+
+    gpt2_model.eval()
+    # Add your evaluation code here
+    # Evaluation
+    gpt2_model.eval()
+    predictions, true_labels = [], []
+    for batch in test_dataloader:
+        input_ids = batch["input_ids"].to(device)
+        labels = batch["labels"].to(device)
+
+        with torch.no_grad():
+            outputs = gpt2_model(input_ids, labels=labels)
+
+        logits = outputs.logits
+        logits = logits.detach().cpu().numpy()
+        label_ids = labels.to("cpu").numpy()
+
+        predictions.extend(np.argmax(logits, axis=-1).flatten())
+        true_labels.extend(label_ids.flatten())
+
+print("Classification Report:")
+print(classification_report(true_labels, predictions, target_names=label_list))
